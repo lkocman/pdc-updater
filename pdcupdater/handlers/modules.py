@@ -17,9 +17,9 @@ log = logging.getLogger(__name__)
 class ModuleStateChangeHandler(pdcupdater.handlers.BaseHandler):
     """ When the state of a module changes. """
 
-    tree_processing_states = set(('done', 'ready'))
+    processing_states = set(('done', 'ready', 'init')) # INIT is only for release variant creation
     other_states = set(('init', 'wait', 'building'))
-    relevant_states = tree_processing_states.union(other_states)
+    relevant_states = processing_states.union(other_states)
     error_states = set(('failed',))
     valid_states = relevant_states.union(error_states)
 
@@ -38,13 +38,14 @@ class ModuleStateChangeHandler(pdcupdater.handlers.BaseHandler):
 
     @property
     def topic_suffixes(self):
-        return ['module.state.change']
+        return ['rida.module.state.change']
 
     def can_handle(self, msg):
+        log.debug("can_handle(%s)"  % msg)
         if not msg['topic'].endswith('module.state.change'):
             return False
 
-        state = msg['msg']['state']
+        state = msg['msg']['state_name']
 
         if state not in self.valid_states:
             log.error("Invalid module state '{}', skipping.".format(state))
@@ -58,8 +59,9 @@ class ModuleStateChangeHandler(pdcupdater.handlers.BaseHandler):
         return True
 
     def handle(self, pdc, msg):
+        log.debug("handle(%s)"  % msg)
         body = msg['msg']
-        state = body['state']
+        state = body['state_name']
 
         if state not in self.relevant_states:
             log.warn("Non-relevant module state '{}', skipping.".format(
@@ -74,6 +76,7 @@ class ModuleStateChangeHandler(pdcupdater.handlers.BaseHandler):
             self.handle_new_tree(pdc, body, unreleased_variant)
 
     def get_mmd_from_scm(self, scmurl):
+        log.debug("get_mmd_from_scm(%s)"  % scmurl)
         with TmpDir(prefix="pdcupdater-") as tmpdir, PushPopD(tmpdir), \
                 open(os.devnull, "w") as devnull:
             m = self.scmurl_re.match(scmurl)
@@ -106,6 +109,7 @@ class ModuleStateChangeHandler(pdcupdater.handlers.BaseHandler):
             return mmd
 
     def create_unreleased_variant(self, pdc, body):
+        log.debug("create_unreleased_variant(%r)"  % body)
         """Creates an UnreleasedVariant for a module in PDC. Checks out the
         module metadata from the supplied SCM repository (currently only
         anonymous GIT is supported)."""
@@ -116,16 +120,19 @@ class ModuleStateChangeHandler(pdcupdater.handlers.BaseHandler):
         runtime_deps = []
         for dep, ver in mmd.requires.items():
             if ver is not None:
-                runtime_deps.append("{} >= {}".format(dep, ver))
+
+                runtime_deps.append({"dependency": "%s-%s" % (dep, ver)})
             else:
-                runtime_deps.append(dep)
+                runtime_deps.append({"dependency": dep})
+        log.debug(runtime_deps)
 
         build_deps = []
         for dep, ver in mmd.buildrequires.items():
             if ver is not None:
-                build_deps.append("{} >= {}".format(dep, ver))
+                build_deps.append({"dependency": "%s-%s" % (dep, ver)})
             else:
-                build_deps.append(dep)
+                build_deps.append({"dependency": dep})
+        log.debug(build_deps)
 
         name = body['name']
         version = body['version']
@@ -152,6 +159,7 @@ class ModuleStateChangeHandler(pdcupdater.handlers.BaseHandler):
         """We get multiple messages for each module n-v-r. Attempts to retrieve
         the corresponding UnreleasedVariant from PDC, or if it's missing,
         creates it."""
+        log.debug("get_or_create_unreleased_variant(%s)" % body)
 
         variant_uid = "{name}-{version}-{release}".format(**body)
         variant_id = variant_uid.lower()
@@ -187,7 +195,7 @@ class ModuleStateChangeHandler(pdcupdater.handlers.BaseHandler):
             if e.response.status_code != 404:
                 raise
         else:
-            log.info("Tree exists already, skipping: {}".format(tree_id))
+            log.debug("Tree exists already, skipping: {}".format(tree_id))
             return
 
         arches = [x['name'] for x in pdc['arches']._(page_size=-1)]
