@@ -137,14 +137,15 @@ class ModuleStateChangeHandler(pdcupdater.handlers.BaseHandler):
         name = body['name']
         version = body['version']
         release = body['release']
-        variant_uid = "{n}-{v}-{r}".format(n=name, v=version, r=release)
-        variant_id = variant_uid.lower()
-        koji_tag = "module-" + variant_id
-
+        variant_uid = name # TODO: uid makes sense only to make variant unique within compose. Remove it
+        variant_id = name  # This is supposed to be equal to name
+        variant_name = name # TODO: this should be pretty print of the name e.g. Description
+        mvr = "%s-%s-%s" % (name, version, release)
+        koji_tag = "module-%s" % mvr
         unreleased_variant = pdc['unreleasedvariants']._({
             'variant_id': variant_id,
             'variant_uid': variant_uid,
-            'variant_name': name,
+            'variant_name': variant_name,
             'variant_version': version,
             'variant_release': release,
             'variant_type': 'module',
@@ -161,8 +162,7 @@ class ModuleStateChangeHandler(pdcupdater.handlers.BaseHandler):
         creates it."""
         log.debug("get_or_create_unreleased_variant(%s)" % body)
 
-        variant_uid = "{name}-{version}-{release}".format(**body)
-        variant_id = variant_uid.lower()
+        variant_id =  body['name'] # This is supposed to be equal to name
 
         try:
             unreleased_variant = pdc['unreleasedvariants'][variant_id]._()
